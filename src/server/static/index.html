@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AutomAIO — AI Inference & Live Browser</title>
+  <style>
+    :root {
+      --bg: #0b0f19;
+      --card-bg: #131b2e;
+      --card-border: #1e293b;
+      --accent: #38bdf8;
+      --accent-hover: #0284c7;
+      --text: #f8fafc;
+      --text-dim: #94a3b8;
+      --success: #10b981;
+      --warning: #f59e0b;
+      --danger: #ef4444;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    body { background: var(--bg); color: var(--text); display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+    
+    header { background: #0f172a; padding: 12px 24px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--card-border); }
+    .brand { font-size: 1.25rem; font-weight: 700; color: var(--accent); display: flex; align-items: center; gap: 8px; }
+    .nav-tabs { display: flex; gap: 8px; }
+    .tab-btn { background: transparent; border: 1px solid var(--card-border); color: var(--text-dim); padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 0.85rem; }
+    .tab-btn.active { background: var(--accent-hover); color: white; border-color: var(--accent); }
+
+    main { flex: 1; display: flex; overflow: hidden; }
+    .tab-content { display: none; width: 100%; height: 100%; }
+    .tab-content.active { display: flex; }
+
+    /* Live Browser Tab */
+    .viewport-panel { flex: 3; background: #000; display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; border-right: 1px solid var(--card-border); }
+    #browser-canvas { max-width: 100%; max-height: 100%; object-fit: contain; cursor: crosshair; }
+    .sidebar { flex: 1.2; background: var(--card-bg); padding: 20px; display: flex; flex-direction: column; gap: 16px; overflow-y: auto; }
+    .card { background: #0f172a; border: 1px solid var(--card-border); border-radius: 8px; padding: 16px; }
+    .btn { background: var(--accent-hover); color: white; border: none; padding: 10px 16px; border-radius: 6px; font-weight: 600; cursor: pointer; transition: 0.2s; font-size: 0.85rem; }
+    .btn:hover { background: var(--accent); }
+    .btn-success { background: var(--success); }
+    .btn-outline { background: transparent; border: 1px solid var(--card-border); color: var(--text); }
+    .btn-outline:hover { background: #1e293b; }
+
+    /* AI Inference Settings Tab */
+    .settings-container { flex: 1; max-width: 900px; margin: 0 auto; padding: 24px; overflow-y: auto; display: flex; flex-direction: column; gap: 20px; }
+    .settings-header { display: flex; justify-content: space-between; align-items: center; }
+    .provider-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 10px; }
+    .provider-card { background: #0f172a; border: 1px solid var(--card-border); border-radius: 6px; padding: 12px; cursor: pointer; transition: 0.2s; display: flex; flex-direction: column; gap: 4px; }
+    .provider-card.active { border-color: var(--accent); background: #1e293b; }
+    .provider-name { font-weight: 600; font-size: 0.9rem; display: flex; justify-content: space-between; align-items: center; }
+    .provider-sub { font-size: 0.75rem; color: var(--text-dim); }
+    .key-badge { font-size: 0.65rem; background: #065f46; color: #34d399; padding: 1px 6px; border-radius: 9999px; }
+
+    .form-group { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
+    .form-group label { font-size: 0.8rem; font-weight: 600; color: var(--text-dim); }
+    .input-field { background: #0f172a; border: 1px solid var(--card-border); color: var(--text); padding: 10px 12px; border-radius: 6px; font-size: 0.85rem; outline: none; }
+    .input-field:focus { border-color: var(--accent); }
+
+    .chips-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+    .chip { background: #1e293b; border: 1px solid var(--card-border); font-size: 0.75rem; padding: 4px 8px; border-radius: 4px; cursor: pointer; color: var(--text-dim); }
+    .chip.active { background: #0284c7; color: white; border-color: var(--accent); }
+
+    .session-url-box { background: #0f172a; border: 1px dashed var(--accent); padding: 12px; border-radius: 6px; display: flex; justify-content: space-between; align-items: center; word-break: break-all; font-family: monospace; font-size: 0.8rem; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <span>⚡ AutomAIO</span>
+      <span style="font-size: 0.75rem; background: #1e293b; padding: 2px 8px; border-radius: 9999px; color: #38bdf8;">v0.2.0</span>
+    </div>
+    <div class="nav-tabs">
+      <button class="tab-btn active" onclick="switchTab('browser-tab')">🖥️ Live Browser & Handoff</button>
+      <button class="tab-btn" onclick="switchTab('ai-tab')">⚙️ AI Inference & Models</button>
+    </div>
+  </header>
+
+  <main>
+    <!-- TAB 1: Live Browser View & Session Handoff -->
+    <div id="browser-tab" class="tab-content active">
+      <div class="viewport-panel">
+        <img id="browser-canvas" alt="Connecting to CDP screencast stream..." />
+      </div>
+
+      <div class="sidebar">
+        <!-- Shareable Random Session URL -->
+        <div class="card">
+          <div style="font-weight: 600; font-size: 0.85rem; margin-bottom: 8px; color: var(--accent);">🔗 SHAREABLE RANDOM SESSION URL</div>
+          <p style="font-size: 0.75rem; color: var(--text-dim); margin-bottom: 8px;">
+            Share this private link with the user. They can view the session or solve CAPTCHA from any phone or PC:
+          </p>
+          <div class="session-url-box" id="session-url-text">Loading session URL...</div>
+          <button class="btn btn-outline" style="width: 100%; margin-top: 8px;" onclick="copySessionUrl()">📋 Copy Shareable Link</button>
+        </div>
+
+        <!-- Handoff Instruction Card -->
+        <div class="card" style="border-left: 4px solid var(--warning);">
+          <div style="font-weight: 600; font-size: 0.85rem; color: var(--warning); margin-bottom: 4px;">INTERACTION STATUS</div>
+          <div id="instruction-text" style="font-size: 0.85rem; color: var(--text);">
+            Automation is running. If human supervision or CAPTCHA is required, you can interact directly with the preview.
+          </div>
+        </div>
+
+        <button id="resume-btn" class="btn btn-success" style="margin-top: auto;">✓ Done — Resume Automation</button>
+      </div>
+    </div>
+
+    <!-- TAB 2: AI Inference Engine & Model Selection (From User Screenshot) -->
+    <div id="ai-tab" class="tab-content">
+      <div class="settings-container">
+        <div class="settings-header">
+          <div>
+            <h2>⚙️ AI Inference Engine & Model Selection</h2>
+            <p style="font-size: 0.85rem; color: var(--text-dim); margin-top: 4px;">
+              Configure any provider: Groq, OpenAI, Anthropic, OpenRouter, DeepSeek, Cerebras, Ollama, Gemini, or custom endpoint.
+            </p>
+          </div>
+          <button class="btn btn-outline" onclick="resetDefaults()">Reset Defaults</button>
+        </div>
+
+        <!-- Provider Selection Grid -->
+        <div class="card">
+          <div style="font-weight: 600; font-size: 0.85rem; margin-bottom: 8px;">SELECT LLM PROVIDER (Auto-loads saved API key)</div>
+          <div class="provider-grid" id="provider-grid">
+            <!-- Rendered by JS -->
+          </div>
+
+          <!-- Base Endpoint URL -->
+          <div class="form-group">
+            <label>Base Endpoint URL (OpenAI-compatible / Anthropic / Gemini)</label>
+            <input type="text" id="endpoint-input" class="input-field" placeholder="https://api.groq.com/openai/v1" />
+          </div>
+
+          <!-- Model Identifier -->
+          <div class="form-group">
+            <label>Model Identifier / Name</label>
+            <input type="text" id="model-input" class="input-field" placeholder="llama-3.3-70b-versatile" />
+          </div>
+
+          <!-- Saved Models Quick Chips -->
+          <div class="form-group">
+            <label>Recommended / Saved Models</label>
+            <div class="chips-row" id="model-chips"></div>
+          </div>
+
+          <!-- API Key Input -->
+          <div class="form-group">
+            <div style="display: flex; justify-content: space-between;">
+              <label id="apikey-label">API Key for Provider</label>
+              <span id="key-status" style="font-size: 0.75rem; color: var(--success);">● Saved in local storage</span>
+            </div>
+            <div style="display: flex; gap: 8px;">
+              <input type="password" id="apikey-input" class="input-field" style="flex: 1;" placeholder="Enter your API key..." />
+              <button class="btn btn-outline" onclick="togglePassword()">👁️</button>
+            </div>
+          </div>
+
+          <!-- Test Connection & Save -->
+          <div style="display: flex; gap: 10px; margin-top: 16px; align-items: center;">
+            <button class="btn" onclick="testConnection()">⚡ Test Model Connection</button>
+            <button class="btn btn-success" onclick="saveSettings()">💾 Save Provider Settings</button>
+            <span id="test-result" style="font-size: 0.85rem; margin-left: 10px;"></span>
+          </div>
+        </div>
+
+        <!-- Advanced Custom JSON Parameters -->
+        <div class="card">
+          <div style="font-weight: 600; font-size: 0.85rem; margin-bottom: 8px;">Custom Parameters (JSON)</div>
+          <textarea id="custom-json" class="input-field" rows="4" style="font-family: monospace;">{
+  "temperature": 0.2,
+  "max_tokens": 2048
+}</textarea>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    // Tab switching
+    function switchTab(tabId) {
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+      event.target.classList.add('active');
+      document.getElementById(tabId).classList.add('active');
+    }
+
+    // Provider presets
+    let presets = {};
+    let currentProvider = 'groq';
+
+    async function init() {
+      try {
+        const res = await fetch('/api/ai/presets');
+        presets = await res.json();
+        renderProviders();
+        selectProvider(currentProvider);
+      } catch (err) {
+        console.error('Failed to load presets', err);
+      }
+
+      // Initialize session URL
+      const currentUrl = new URL(window.location.href);
+      const sessionUrl = `${currentUrl.origin}/session/sess_${Math.random().toString(36).substring(2, 10)}?token=tok_${Math.random().toString(36).substring(2, 14)}`;
+      document.getElementById('session-url-text').textContent = sessionUrl;
+    }
+
+    function renderProviders() {
+      const grid = document.getElementById('provider-grid');
+      grid.innerHTML = '';
+      for (const [id, preset] of Object.entries(presets)) {
+        const savedKey = localStorage.getItem(`apikey_${id}`);
+        const card = document.createElement('div');
+        card.className = `provider-card ${id === currentProvider ? 'active' : ''}`;
+        card.id = `card-${id}`;
+        card.onclick = () => selectProvider(id);
+        card.innerHTML = `
+          <div class="provider-name">
+            <span>${preset.name}</span>
+            ${savedKey ? '<span class="key-badge">key saved</span>' : '<span style="font-size:0.65rem; color:#64748b;">no key</span>'}
+          </div>
+          <div class="provider-sub">${preset.defaultModel}</div>
+        `;
+        grid.appendChild(card);
+      }
+    }
+
+    function selectProvider(id) {
+      currentProvider = id;
+      document.querySelectorAll('.provider-card').forEach(c => c.classList.remove('active'));
+      const activeCard = document.getElementById(`card-${id}`);
+      if (activeCard) activeCard.classList.add('active');
+
+      const preset = presets[id];
+      if (!preset) return;
+
+      document.getElementById('endpoint-input').value = localStorage.getItem(`endpoint_${id}`) || preset.defaultEndpoint;
+      document.getElementById('model-input').value = localStorage.getItem(`model_${id}`) || preset.defaultModel;
+      document.getElementById('apikey-input').value = localStorage.getItem(`apikey_${id}`) || '';
+      document.getElementById('apikey-label').textContent = `API Key for ${preset.name}`;
+
+      // Render model chips
+      const chipsContainer = document.getElementById('model-chips');
+      chipsContainer.innerHTML = '';
+      preset.recommendedModels.forEach(m => {
+        const chip = document.createElement('span');
+        chip.className = `chip ${m === document.getElementById('model-input').value ? 'active' : ''}`;
+        chip.textContent = m;
+        chip.onclick = () => {
+          document.getElementById('model-input').value = m;
+          document.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+          chip.classList.add('active');
+        };
+        chipsContainer.appendChild(chip);
+      });
+    }
+
+    function saveSettings() {
+      const key = document.getElementById('apikey-input').value.trim();
+      const endpoint = document.getElementById('endpoint-input').value.trim();
+      const model = document.getElementById('model-input').value.trim();
+
+      localStorage.setItem(`apikey_${currentProvider}`, key);
+      localStorage.setItem(`endpoint_${currentProvider}`, endpoint);
+      localStorage.setItem(`model_${currentProvider}`, model);
+
+      renderProviders();
+      selectProvider(currentProvider);
+      alert(`Settings saved for ${presets[currentProvider]?.name}!`);
+    }
+
+    async function testConnection() {
+      const resultSpan = document.getElementById('test-result');
+      resultSpan.style.color = '#38bdf8';
+      resultSpan.textContent = '⏳ Testing connection...';
+
+      try {
+        const payload = {
+          provider: currentProvider,
+          endpoint: document.getElementById('endpoint-input').value.trim(),
+          model: document.getElementById('model-input').value.trim(),
+          apiKey: document.getElementById('apikey-input').value.trim()
+        };
+
+        const res = await fetch('/api/ai/test', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        const data = await res.json();
+        if (data.success) {
+          resultSpan.style.color = 'var(--success)';
+          resultSpan.textContent = `✓ Connected successfully (${data.latencyMs}ms)! Response: "${data.message}"`;
+        } else {
+          resultSpan.style.color = 'var(--danger)';
+          resultSpan.textContent = `✗ Failed: ${data.message}`;
+        }
+      } catch (err) {
+        resultSpan.style.color = 'var(--danger)';
+        resultSpan.textContent = `✗ Network Error: ${err.message}`;
+      }
+    }
+
+    function togglePassword() {
+      const input = document.getElementById('apikey-input');
+      input.type = input.type === 'password' ? 'text' : 'password';
+    }
+
+    function copySessionUrl() {
+      const text = document.getElementById('session-url-text').textContent;
+      navigator.clipboard.writeText(text);
+      alert('Copied shareable session link to clipboard!');
+    }
+
+    // CDP Screencast WebSocket
+    const img = document.getElementById('browser-canvas');
+    const wsProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const ws = new WebSocket(`${wsProto}//${window.location.host}/ws/screencast`);
+
+    ws.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(event.data);
+        if (msg.type === 'frame') {
+          img.src = 'data:image/jpeg;base64,' + msg.data;
+        }
+      } catch {}
+    };
+
+    img.addEventListener('click', (e) => {
+      const rect = img.getBoundingClientRect();
+      const scaleX = img.naturalWidth / rect.width;
+      const scaleY = img.naturalHeight / rect.height;
+      const x = Math.round((e.clientX - rect.left) * scaleX);
+      const y = Math.round((e.clientY - rect.top) * scaleY);
+      ws.send(JSON.stringify({ type: 'input', payload: { type: 'click', x, y } }));
+    });
+
+    window.addEventListener('keydown', (e) => {
+      if (document.activeElement.tagName !== 'INPUT' && document.activeElement.tagName !== 'TEXTAREA') {
+        ws.send(JSON.stringify({ type: 'input', payload: { type: 'type', text: e.key.length === 1 ? e.key : undefined, key: e.key } }));
+      }
+    });
+
+    init();
+  </script>
+</body>
+</html>
