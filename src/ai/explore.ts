@@ -19,6 +19,18 @@ export interface ExploreOptions {
   onHandoffRequired?: (hint: string, resume: () => void) => Promise<void>;
 }
 
+/**
+ * Normalizes user-entered URLs (adds https:// if missing, removes whitespace)
+ */
+export function normalizeUrl(rawUrl?: string): string | undefined {
+  if (!rawUrl || !rawUrl.trim()) return undefined;
+  let trimmed = rawUrl.trim();
+  if (!/^https?:\/\//i.test(trimmed)) {
+    trimmed = `https://${trimmed}`;
+  }
+  return trimmed;
+}
+
 export function parseLLMJSON(raw: string): any {
   if (!raw) return null;
 
@@ -57,14 +69,12 @@ export class ExplorerAgent {
     const steps: RecipeStep[] = [];
     const maxSteps = options.maxSteps || 12;
 
-    // Use user-provided direct URL if available, otherwise fallback to DuckDuckGo (cleaner than Google)
-    let startUrl = options.initialUrl?.trim();
-    if (!startUrl || !startUrl.startsWith('http')) {
-      startUrl = `https://duckduckgo.com/?q=${encodeURIComponent(options.taskGoal)}`;
-    }
+    // Prioritize user-provided direct URL with normalization
+    const normalizedDirect = normalizeUrl(options.initialUrl);
+    const startUrl = normalizedDirect || `https://duckduckgo.com/?q=${encodeURIComponent(options.taskGoal)}`;
 
     if (options.onLog) {
-      options.onLog('status', `Navigating to ${startUrl}...`);
+      options.onLog('status', `Direct navigation to: ${startUrl}`);
     }
 
     await this.page.goto(startUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });

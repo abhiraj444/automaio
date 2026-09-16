@@ -5,7 +5,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { SessionRegistry } from './session-registry.js';
 import { PROVIDER_PRESETS, UniversalLLMProvider, AIProviderConfig } from '../ai/provider.js';
-import { ExplorerAgent } from '../ai/explore.js';
+import { ExplorerAgent, normalizeUrl } from '../ai/explore.js';
 import { RecipeStore } from '../store/recipe-store.js';
 import { RuntimeEngine } from '../core/runtime.js';
 
@@ -69,23 +69,37 @@ export function createAutomAIOServer(config: ServerConfig = {}): FastifyInstance
       return reply.status(500).send({ error: 'No active browser session found' });
     }
 
+    // Normalize user-provided URL (e.g. "spacex.com" -> "https://spacex.com")
+    const explicitUrl = normalizeUrl(body.url);
+
     // Run task asynchronously
     (async () => {
       try {
         const provider = new UniversalLLMProvider(body.aiConfig || {});
         
+        const destinationDesc = explicitUrl ? `Direct URL: ${explicitUrl}` : `Web Search`;
         session.events.emit('log', {
           type: 'status',
-          text: `Starting automation for: "${body.goal}"`
+          text: `Starting automation for: "${body.goal}" (${destinationDesc})`
         });
 
-        const canonicalKey = body.goal.toLowerCase().replace(/[^a-z0-9]/g, '.');
+        // Domain-aware canonical key
+        let targetDomain = '';
+        if (explicitUrl) {
+          try { targetDomain = new URL(explicitUrl).hostname; } catch {}
+        }
+
+        const taskSlug = body.goal.toLowerCase().replace(/[^a-z0-9]/g, '.');
+        const canonicalKey = targetDomain ? `${targetDomain}:${taskSlug}` : taskSlug;
         const cachedRecipe = recipeStore.findByTaskKey(canonicalKey);
 
-        if (cachedRecipe) {
+        // Only use cached recipe if domain matches target URL (or no URL was specified)
+        const isDomainMatch = !targetDomain || (cachedRecipe && cachedRecipe.siteDomain.includes(targetDomain));
+
+        if (cachedRecipe && isDomainMatch) {
           session.events.emit('log', {
             type: 'cache_hit',
-            text: `Cache Hit! Running pre-compiled recipe "${cachedRecipe.name}" (0 LLM tokens, ultra-fast)`
+            text: `Cache Hit! Running pre-compiled recipe for ${cachedRecipe.siteDomain} (0 LLM tokens, ultra-fast)`
           });
 
           const runtime = new RuntimeEngine(session.page, cachedRecipe, {
@@ -108,12 +122,12 @@ export function createAutomAIOServer(config: ServerConfig = {}): FastifyInstance
         } else {
           session.events.emit('log', {
             type: 'explore',
-            text: `Launching Explore Mode using ${body.aiConfig?.provider || 'default'} AI...`
+            text: `Launching Explore Mode on ${explicitUrl || 'DuckDuckGo'}...`
           });
 
           const explorer = new ExplorerAgent(session.page, provider);
           const compiledRecipe = await explorer.explore({
-            initialUrl: body.url,
+            initialUrl: explicitUrl,
             taskGoal: body.goal,
             taskKey: canonicalKey,
             userData: body.userData,
@@ -135,7 +149,7 @@ export function createAutomAIOServer(config: ServerConfig = {}): FastifyInstance
             await recipeStore.save(compiledRecipe);
             session.events.emit('log', {
               type: 'done',
-              text: `Saved compiled recipe with ${compiledRecipe.steps.length} steps.`
+              text: `Saved compiled recipe for ${compiledRecipe.siteDomain} with ${compiledRecipe.steps.length} steps.`
             });
           }
         }
