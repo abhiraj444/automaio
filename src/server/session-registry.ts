@@ -1,4 +1,5 @@
 import { randomBytes } from 'crypto';
+import { EventEmitter } from 'events';
 import { Page } from 'playwright';
 import { CDPScreencastManager } from '../handoff/cdp-screencast.js';
 import { RemoteInputForwarder } from '../handoff/input-forwarder.js';
@@ -13,6 +14,7 @@ export interface LiveSession {
   page: Page;
   screencast: CDPScreencastManager;
   inputForwarder: RemoteInputForwarder;
+  events: EventEmitter;
   status: 'active' | 'waiting_human' | 'closed';
   instruction?: string;
   onResolved?: () => void;
@@ -34,6 +36,7 @@ export class SessionRegistry {
     await screencast.start(75);
 
     const inputForwarder = new RemoteInputForwarder(page, () => screencast.getCDPSession());
+    const events = new EventEmitter();
 
     const session: LiveSession = {
       sessionId,
@@ -45,6 +48,7 @@ export class SessionRegistry {
       page,
       screencast,
       inputForwarder,
+      events,
       status: 'active'
     };
 
@@ -72,12 +76,13 @@ export class SessionRegistry {
     const session = this.sessions.get(sessionId);
     if (session) {
       await session.screencast.stop().catch(() => {});
+      session.events.removeAllListeners();
       session.status = 'closed';
       this.sessions.delete(sessionId);
     }
   }
 
-  listActive(): Array<Omit<LiveSession, 'page' | 'screencast' | 'inputForwarder'>> {
+  listActive(): Array<Omit<LiveSession, 'page' | 'screencast' | 'inputForwarder' | 'events'>> {
     return Array.from(this.sessions.values()).map(s => ({
       sessionId: s.sessionId,
       token: s.token,

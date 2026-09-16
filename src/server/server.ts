@@ -64,7 +64,6 @@ export function createAutomAIOServer(config: ServerConfig = {}): FastifyInstance
       return reply.status(400).send({ error: 'Both goal and url are required' });
     }
 
-    // Get or create session
     let session = body.sessionId ? registry.getSession(body.sessionId) : undefined;
     if (!session) {
       const active = registry.listActive()[0];
@@ -75,23 +74,21 @@ export function createAutomAIOServer(config: ServerConfig = {}): FastifyInstance
       return reply.status(500).send({ error: 'No active browser session found' });
     }
 
-    // Execute task asynchronously so HTTP responds immediately
+    // Execute task asynchronously
     (async () => {
       try {
         const provider = new UniversalLLMProvider(body.aiConfig || {});
         
-        // Broadcast task started
-        session.page.emit('automAIO:log', {
+        session.events.emit('log', {
           type: 'status',
           text: `Starting automation for: "${body.goal}" on ${body.url}`
         });
 
-        // 1. Check Recipe Store for Cache Hit (Execute Mode: 0 LLM)
         const canonicalKey = body.goal.toLowerCase().replace(/[^a-z0-9]/g, '.');
         const cachedRecipe = recipeStore.findByTaskKey(canonicalKey);
 
         if (cachedRecipe) {
-          session.page.emit('automAIO:log', {
+          session.events.emit('log', {
             type: 'cache_hit',
             text: `Cache Hit! Running pre-compiled recipe "${cachedRecipe.name}" (0 LLM tokens, ultra-fast)`
           });
@@ -101,7 +98,7 @@ export function createAutomAIOServer(config: ServerConfig = {}): FastifyInstance
               session!.status = 'waiting_human';
               session!.instruction = (step.op as any).hint || 'Human action required';
               session!.onResolved = resume;
-              session!.page.emit('automAIO:log', {
+              session!.events.emit('log', {
                 type: 'handoff',
                 text: `Handoff requested: ${session!.instruction}`
               });
@@ -109,13 +106,12 @@ export function createAutomAIOServer(config: ServerConfig = {}): FastifyInstance
           }, body.userData || {});
 
           const result = await runtime.execute();
-          session.page.emit('automAIO:log', {
+          session.events.emit('log', {
             type: result.success ? 'done' : 'error',
             text: result.success ? `Workflow completed successfully (${result.stepsCompleted} steps)!` : `Execution error: ${result.error}`
           });
         } else {
-          // 2. Explore Mode: AI Navigates and Compiles Recipe
-          session.page.emit('automAIO:log', {
+          session.events.emit('log', {
             type: 'explore',
             text: `No cached recipe found. Launching Explore Mode using ${body.aiConfig?.provider || 'default'} AI...`
           });
@@ -129,13 +125,13 @@ export function createAutomAIOServer(config: ServerConfig = {}): FastifyInstance
           });
 
           await recipeStore.save(compiledRecipe);
-          session.page.emit('automAIO:log', {
+          session.events.emit('log', {
             type: 'done',
             text: `Exploration complete! Compiled and saved new recipe with ${compiledRecipe.steps.length} steps.`
           });
         }
       } catch (err: any) {
-        session.page.emit('automAIO:log', {
+        session.events.emit('log', {
           type: 'error',
           text: `Task failed: ${err.message}`
         });
@@ -198,13 +194,13 @@ export function createAutomAIOServer(config: ServerConfig = {}): FastifyInstance
         }
       });
 
-      // 2. Real-time Activity Log Listener
+      // 2. Real-time Activity Log Listener via session EventEmitter
       const logHandler = (logData: any) => {
         if (socket.readyState === socket.OPEN) {
           socket.send(JSON.stringify({ type: 'log', data: logData }));
         }
       };
-      session.page.on('automAIO:log' as any, logHandler);
+      session.events.on('log', logHandler);
 
       // 3. Remote Mouse/Key Events
       socket.on('message', async (message: any) => {
@@ -225,7 +221,7 @@ export function createAutomAIOServer(config: ServerConfig = {}): FastifyInstance
 
       socket.on('close', () => {
         unsubscribeFrames();
-        session.page.off('automAIO:log' as any, logHandler);
+        session.events.off('log', logHandler);
       });
     }
   });
