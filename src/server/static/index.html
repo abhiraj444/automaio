@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AutomAIO — AI Inference & Live Browser</title>
+  <title>AutomAIO — AI Automation & Live Browser</title>
   <style>
     :root {
       --bg: #0b0f19;
@@ -20,60 +20,91 @@
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
     body { background: var(--bg); color: var(--text); display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
     
-    header { background: #0f172a; padding: 12px 24px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--card-border); }
+    header { background: #0f172a; padding: 10px 24px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--card-border); }
     .brand { font-size: 1.25rem; font-weight: 700; color: var(--accent); display: flex; align-items: center; gap: 8px; }
     .nav-tabs { display: flex; gap: 8px; }
     .tab-btn { background: transparent; border: 1px solid var(--card-border); color: var(--text-dim); padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 0.85rem; }
     .tab-btn.active { background: var(--accent-hover); color: white; border-color: var(--accent); }
+
+    /* Task Query Bar */
+    .task-query-bar { background: #131b2e; padding: 12px 24px; border-bottom: 1px solid var(--card-border); display: flex; flex-direction: column; gap: 8px; }
+    .query-inputs { display: flex; gap: 10px; align-items: center; }
+    .query-input { background: #0f172a; border: 1px solid var(--card-border); color: var(--text); padding: 10px 14px; border-radius: 6px; font-size: 0.9rem; outline: none; flex: 2; }
+    .url-input { background: #0f172a; border: 1px solid var(--card-border); color: var(--text); padding: 10px 14px; border-radius: 6px; font-size: 0.9rem; outline: none; flex: 1.2; }
+    .query-input:focus, .url-input:focus { border-color: var(--accent); }
+    .btn-run { background: linear-gradient(135deg, #0284c7, #2563eb); color: white; border: none; padding: 10px 20px; border-radius: 6px; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 6px; font-size: 0.9rem; transition: 0.2s; white-space: nowrap; }
+    .btn-run:hover { opacity: 0.9; transform: translateY(-1px); }
+
+    .example-chips { display: flex; align-items: center; gap: 8px; font-size: 0.75rem; color: var(--text-dim); }
+    .chip { background: #1e293b; border: 1px solid var(--card-border); padding: 3px 8px; border-radius: 4px; cursor: pointer; color: var(--accent); }
+    .chip:hover { background: #334155; }
 
     main { flex: 1; display: flex; overflow: hidden; }
     .tab-content { display: none; width: 100%; height: 100%; }
     .tab-content.active { display: flex; }
 
     /* Live Browser Tab */
-    .viewport-panel { flex: 3; background: #000; display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; border-right: 1px solid var(--card-border); }
+    .viewport-panel { flex: 2.8; background: #000; display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; border-right: 1px solid var(--card-border); }
     #browser-canvas { max-width: 100%; max-height: 100%; object-fit: contain; cursor: crosshair; }
-    .sidebar { flex: 1.2; background: var(--card-bg); padding: 20px; display: flex; flex-direction: column; gap: 16px; overflow-y: auto; }
-    .card { background: #0f172a; border: 1px solid var(--card-border); border-radius: 8px; padding: 16px; }
-    .btn { background: var(--accent-hover); color: white; border: none; padding: 10px 16px; border-radius: 6px; font-weight: 600; cursor: pointer; transition: 0.2s; font-size: 0.85rem; }
-    .btn:hover { background: var(--accent); }
+    
+    .sidebar { flex: 1.2; background: var(--card-bg); padding: 16px; display: flex; flex-direction: column; gap: 14px; overflow-y: auto; }
+    .card { background: #0f172a; border: 1px solid var(--card-border); border-radius: 8px; padding: 14px; }
+    .btn { background: var(--accent-hover); color: white; border: none; padding: 9px 14px; border-radius: 6px; font-weight: 600; cursor: pointer; transition: 0.2s; font-size: 0.85rem; }
     .btn-success { background: var(--success); }
     .btn-outline { background: transparent; border: 1px solid var(--card-border); color: var(--text); }
     .btn-outline:hover { background: #1e293b; }
 
-    /* AI Inference Settings Tab */
+    /* Activity Stream */
+    .activity-log { display: flex; flex-direction: column; gap: 8px; max-height: 180px; overflow-y: auto; font-family: monospace; font-size: 0.75rem; }
+    .log-item { padding: 6px 8px; border-radius: 4px; border-left: 3px solid var(--accent); background: #1e293b; }
+    .log-item.cache_hit { border-left-color: var(--success); color: #34d399; }
+    .log-item.explore { border-left-color: #818cf8; color: #a5b4fc; }
+    .log-item.handoff { border-left-color: var(--warning); color: #fbbf24; }
+    .log-item.done { border-left-color: var(--success); font-weight: bold; }
+    .log-item.error { border-left-color: var(--danger); color: #f87171; }
+
+    /* AI Settings Tab */
     .settings-container { flex: 1; max-width: 900px; margin: 0 auto; padding: 24px; overflow-y: auto; display: flex; flex-direction: column; gap: 20px; }
-    .settings-header { display: flex; justify-content: space-between; align-items: center; }
     .provider-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 10px; }
     .provider-card { background: #0f172a; border: 1px solid var(--card-border); border-radius: 6px; padding: 12px; cursor: pointer; transition: 0.2s; display: flex; flex-direction: column; gap: 4px; }
     .provider-card.active { border-color: var(--accent); background: #1e293b; }
     .provider-name { font-weight: 600; font-size: 0.9rem; display: flex; justify-content: space-between; align-items: center; }
-    .provider-sub { font-size: 0.75rem; color: var(--text-dim); }
     .key-badge { font-size: 0.65rem; background: #065f46; color: #34d399; padding: 1px 6px; border-radius: 9999px; }
-
     .form-group { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
     .form-group label { font-size: 0.8rem; font-weight: 600; color: var(--text-dim); }
     .input-field { background: #0f172a; border: 1px solid var(--card-border); color: var(--text); padding: 10px 12px; border-radius: 6px; font-size: 0.85rem; outline: none; }
     .input-field:focus { border-color: var(--accent); }
-
-    .chips-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
-    .chip { background: #1e293b; border: 1px solid var(--card-border); font-size: 0.75rem; padding: 4px 8px; border-radius: 4px; cursor: pointer; color: var(--text-dim); }
-    .chip.active { background: #0284c7; color: white; border-color: var(--accent); }
-
-    .session-url-box { background: #0f172a; border: 1px dashed var(--accent); padding: 12px; border-radius: 6px; display: flex; justify-content: space-between; align-items: center; word-break: break-all; font-family: monospace; font-size: 0.8rem; }
+    .session-url-box { background: #0f172a; border: 1px dashed var(--accent); padding: 10px; border-radius: 6px; display: flex; justify-content: space-between; align-items: center; word-break: break-all; font-family: monospace; font-size: 0.75rem; }
   </style>
 </head>
 <body>
   <header>
     <div class="brand">
       <span>⚡ AutomAIO</span>
-      <span style="font-size: 0.75rem; background: #1e293b; padding: 2px 8px; border-radius: 9999px; color: #38bdf8;">v0.2.0</span>
+      <span style="font-size: 0.75rem; background: #1e293b; padding: 2px 8px; border-radius: 9999px; color: #38bdf8;">v0.3.0</span>
     </div>
     <div class="nav-tabs">
       <button class="tab-btn active" onclick="switchTab('browser-tab')">🖥️ Live Browser & Handoff</button>
       <button class="tab-btn" onclick="switchTab('ai-tab')">⚙️ AI Inference & Models</button>
     </div>
   </header>
+
+  <!-- NATURAL LANGUAGE TASK QUERY BAR (Where the user asks what to achieve) -->
+  <div class="task-query-bar">
+    <div class="query-inputs">
+      <input type="text" id="task-goal-input" class="query-input" placeholder="What would you like to achieve? (e.g. Download SSC CGL admit card for roll 99120)" />
+      <input type="text" id="task-url-input" class="url-input" placeholder="Target Website URL (e.g. https://ssc.gov.in)" value="https://example.com" />
+      <button class="btn-run" onclick="startAutomationTask()">
+        <span>🚀 Start Run</span>
+      </button>
+    </div>
+    <div class="example-chips">
+      <span>Quick Examples:</span>
+      <span class="chip" onclick="setQuery('Download SSC CGL 2026 Admit Card', 'https://ssc.gov.in')">SSC Admit Card</span>
+      <span class="chip" onclick="setQuery('Check application status and download PDF', 'https://example.com')">Check Application Status</span>
+      <span class="chip" onclick="setQuery('Fill candidate exam details and upload docs', 'https://example.com')">Fill Exam Form</span>
+    </div>
+  </div>
 
   <main>
     <!-- TAB 1: Live Browser View & Session Handoff -->
@@ -83,21 +114,29 @@
       </div>
 
       <div class="sidebar">
+        <!-- Live AI Thoughts & Activity Log -->
+        <div class="card">
+          <div style="font-weight: 600; font-size: 0.85rem; margin-bottom: 8px; color: var(--accent);">🧠 REAL-TIME AI ACTIVITY</div>
+          <div class="activity-log" id="activity-log">
+            <div class="log-item">System ready. Enter your goal above and click "Start Run".</div>
+          </div>
+        </div>
+
         <!-- Shareable Random Session URL -->
         <div class="card">
-          <div style="font-weight: 600; font-size: 0.85rem; margin-bottom: 8px; color: var(--accent);">🔗 SHAREABLE RANDOM SESSION URL</div>
-          <p style="font-size: 0.75rem; color: var(--text-dim); margin-bottom: 8px;">
-            Share this private link with the user. They can view the session or solve CAPTCHA from any phone or PC:
+          <div style="font-weight: 600; font-size: 0.85rem; margin-bottom: 6px; color: var(--accent);">🔗 SHAREABLE RANDOM SESSION URL</div>
+          <p style="font-size: 0.72rem; color: var(--text-dim); margin-bottom: 6px;">
+            Open this on your mobile or share with a user to supervise or solve CAPTCHA:
           </p>
           <div class="session-url-box" id="session-url-text">Loading session URL...</div>
-          <button class="btn btn-outline" style="width: 100%; margin-top: 8px;" onclick="copySessionUrl()">📋 Copy Shareable Link</button>
+          <button class="btn btn-outline" style="width: 100%; margin-top: 6px;" onclick="copySessionUrl()">📋 Copy Link</button>
         </div>
 
         <!-- Handoff Instruction Card -->
         <div class="card" style="border-left: 4px solid var(--warning);">
           <div style="font-weight: 600; font-size: 0.85rem; color: var(--warning); margin-bottom: 4px;">INTERACTION STATUS</div>
-          <div id="instruction-text" style="font-size: 0.85rem; color: var(--text);">
-            Automation is running. If human supervision or CAPTCHA is required, you can interact directly with the preview.
+          <div id="instruction-text" style="font-size: 0.8rem; color: var(--text);">
+            No intervention required. Automation running.
           </div>
         </div>
 
@@ -105,50 +144,44 @@
       </div>
     </div>
 
-    <!-- TAB 2: AI Inference Engine & Model Selection (From User Screenshot) -->
+    <!-- TAB 2: AI Inference Engine & Model Selection -->
     <div id="ai-tab" class="tab-content">
       <div class="settings-container">
-        <div class="settings-header">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
           <div>
             <h2>⚙️ AI Inference Engine & Model Selection</h2>
             <p style="font-size: 0.85rem; color: var(--text-dim); margin-top: 4px;">
               Configure any provider: Groq, OpenAI, Anthropic, OpenRouter, DeepSeek, Cerebras, Ollama, Gemini, or custom endpoint.
             </p>
           </div>
-          <button class="btn btn-outline" onclick="resetDefaults()">Reset Defaults</button>
         </div>
 
         <!-- Provider Selection Grid -->
         <div class="card">
-          <div style="font-weight: 600; font-size: 0.85rem; margin-bottom: 8px;">SELECT LLM PROVIDER (Auto-loads saved API key)</div>
-          <div class="provider-grid" id="provider-grid">
-            <!-- Rendered by JS -->
-          </div>
+          <div style="font-weight: 600; font-size: 0.85rem; margin-bottom: 8px;">SELECT LLM PROVIDER</div>
+          <div class="provider-grid" id="provider-grid"></div>
 
           <!-- Base Endpoint URL -->
           <div class="form-group">
-            <label>Base Endpoint URL (OpenAI-compatible / Anthropic / Gemini)</label>
-            <input type="text" id="endpoint-input" class="input-field" placeholder="https://api.groq.com/openai/v1" />
+            <label>Base Endpoint URL</label>
+            <input type="text" id="endpoint-input" class="input-field" />
           </div>
 
           <!-- Model Identifier -->
           <div class="form-group">
             <label>Model Identifier / Name</label>
-            <input type="text" id="model-input" class="input-field" placeholder="llama-3.3-70b-versatile" />
+            <input type="text" id="model-input" class="input-field" />
           </div>
 
           <!-- Saved Models Quick Chips -->
           <div class="form-group">
-            <label>Recommended / Saved Models</label>
-            <div class="chips-row" id="model-chips"></div>
+            <label>Recommended Models</label>
+            <div class="example-chips" id="model-chips" style="margin-top: 4px;"></div>
           </div>
 
           <!-- API Key Input -->
           <div class="form-group">
-            <div style="display: flex; justify-content: space-between;">
-              <label id="apikey-label">API Key for Provider</label>
-              <span id="key-status" style="font-size: 0.75rem; color: var(--success);">● Saved in local storage</span>
-            </div>
+            <label id="apikey-label">API Key</label>
             <div style="display: flex; gap: 8px;">
               <input type="password" id="apikey-input" class="input-field" style="flex: 1;" placeholder="Enter your API key..." />
               <button class="btn btn-outline" onclick="togglePassword()">👁️</button>
@@ -162,21 +195,11 @@
             <span id="test-result" style="font-size: 0.85rem; margin-left: 10px;"></span>
           </div>
         </div>
-
-        <!-- Advanced Custom JSON Parameters -->
-        <div class="card">
-          <div style="font-weight: 600; font-size: 0.85rem; margin-bottom: 8px;">Custom Parameters (JSON)</div>
-          <textarea id="custom-json" class="input-field" rows="4" style="font-family: monospace;">{
-  "temperature": 0.2,
-  "max_tokens": 2048
-}</textarea>
-        </div>
       </div>
     </div>
   </main>
 
   <script>
-    // Tab switching
     function switchTab(tabId) {
       document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
       document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
@@ -184,7 +207,11 @@
       document.getElementById(tabId).classList.add('active');
     }
 
-    // Provider presets
+    function setQuery(goal, url) {
+      document.getElementById('task-goal-input').value = goal;
+      document.getElementById('task-url-input').value = url;
+    }
+
     let presets = {};
     let currentProvider = 'groq';
 
@@ -194,14 +221,61 @@
         presets = await res.json();
         renderProviders();
         selectProvider(currentProvider);
-      } catch (err) {
-        console.error('Failed to load presets', err);
+      } catch (err) {}
+
+      // Get active session
+      try {
+        const res = await fetch('/api/sessions');
+        const sessions = await res.json();
+        if (sessions && sessions.length > 0) {
+          const s = sessions[0];
+          const fullUrl = `${window.location.origin}/session/${s.sessionId}?token=${s.token}`;
+          document.getElementById('session-url-text').textContent = fullUrl;
+        }
+      } catch (err) {}
+    }
+
+    function addLog(type, text) {
+      const log = document.getElementById('activity-log');
+      const item = document.createElement('div');
+      item.className = `log-item ${type}`;
+      item.textContent = `[${new Date().toLocaleTimeString()}] ${text}`;
+      log.prepend(item);
+    }
+
+    async function startAutomationTask() {
+      const goal = document.getElementById('task-goal-input').value.trim();
+      const url = document.getElementById('task-url-input').value.trim();
+
+      if (!goal || !url) {
+        alert('Please enter both your automation goal and the target URL.');
+        return;
       }
 
-      // Initialize session URL
-      const currentUrl = new URL(window.location.href);
-      const sessionUrl = `${currentUrl.origin}/session/sess_${Math.random().toString(36).substring(2, 10)}?token=tok_${Math.random().toString(36).substring(2, 14)}`;
-      document.getElementById('session-url-text').textContent = sessionUrl;
+      addLog('status', `Sending goal: "${goal}" to AutomAIO Engine...`);
+
+      const aiConfig = {
+        provider: currentProvider,
+        endpoint: document.getElementById('endpoint-input').value.trim(),
+        model: document.getElementById('model-input').value.trim(),
+        apiKey: document.getElementById('apikey-input').value.trim()
+      };
+
+      try {
+        const res = await fetch('/api/tasks/start', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ goal, url, aiConfig })
+        });
+        const data = await res.json();
+        if (data.success) {
+          addLog('status', `Task accepted by runner. Watch the live browser below!`);
+        } else {
+          addLog('error', `Failed to start: ${data.error}`);
+        }
+      } catch (err) {
+        addLog('error', `Network error: ${err.message}`);
+      }
     }
 
     function renderProviders() {
@@ -216,9 +290,9 @@
         card.innerHTML = `
           <div class="provider-name">
             <span>${preset.name}</span>
-            ${savedKey ? '<span class="key-badge">key saved</span>' : '<span style="font-size:0.65rem; color:#64748b;">no key</span>'}
+            ${savedKey ? '<span class="key-badge">saved</span>' : '<span style="font-size:0.65rem; color:#64748b;">no key</span>'}
           </div>
-          <div class="provider-sub">${preset.defaultModel}</div>
+          <div style="font-size:0.75rem; color:#64748b;">${preset.defaultModel}</div>
         `;
         grid.appendChild(card);
       }
@@ -238,34 +312,24 @@
       document.getElementById('apikey-input').value = localStorage.getItem(`apikey_${id}`) || '';
       document.getElementById('apikey-label').textContent = `API Key for ${preset.name}`;
 
-      // Render model chips
-      const chipsContainer = document.getElementById('model-chips');
-      chipsContainer.innerHTML = '';
+      const chips = document.getElementById('model-chips');
+      chips.innerHTML = '';
       preset.recommendedModels.forEach(m => {
         const chip = document.createElement('span');
-        chip.className = `chip ${m === document.getElementById('model-input').value ? 'active' : ''}`;
+        chip.className = 'chip';
         chip.textContent = m;
-        chip.onclick = () => {
-          document.getElementById('model-input').value = m;
-          document.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
-          chip.classList.add('active');
-        };
-        chipsContainer.appendChild(chip);
+        chip.onclick = () => { document.getElementById('model-input').value = m; };
+        chips.appendChild(chip);
       });
     }
 
     function saveSettings() {
-      const key = document.getElementById('apikey-input').value.trim();
-      const endpoint = document.getElementById('endpoint-input').value.trim();
-      const model = document.getElementById('model-input').value.trim();
-
-      localStorage.setItem(`apikey_${currentProvider}`, key);
-      localStorage.setItem(`endpoint_${currentProvider}`, endpoint);
-      localStorage.setItem(`model_${currentProvider}`, model);
-
+      localStorage.setItem(`apikey_${currentProvider}`, document.getElementById('apikey-input').value.trim());
+      localStorage.setItem(`endpoint_${currentProvider}`, document.getElementById('endpoint-input').value.trim());
+      localStorage.setItem(`model_${currentProvider}`, document.getElementById('model-input').value.trim());
       renderProviders();
       selectProvider(currentProvider);
-      alert(`Settings saved for ${presets[currentProvider]?.name}!`);
+      alert('Settings saved!');
     }
 
     async function testConnection() {
@@ -274,30 +338,27 @@
       resultSpan.textContent = '⏳ Testing connection...';
 
       try {
-        const payload = {
-          provider: currentProvider,
-          endpoint: document.getElementById('endpoint-input').value.trim(),
-          model: document.getElementById('model-input').value.trim(),
-          apiKey: document.getElementById('apikey-input').value.trim()
-        };
-
         const res = await fetch('/api/ai/test', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
+          body: JSON.stringify({
+            provider: currentProvider,
+            endpoint: document.getElementById('endpoint-input').value.trim(),
+            model: document.getElementById('model-input').value.trim(),
+            apiKey: document.getElementById('apikey-input').value.trim()
+          })
         });
-
         const data = await res.json();
         if (data.success) {
           resultSpan.style.color = 'var(--success)';
-          resultSpan.textContent = `✓ Connected successfully (${data.latencyMs}ms)! Response: "${data.message}"`;
+          resultSpan.textContent = `✓ Connected (${data.latencyMs}ms)! Response: "${data.message}"`;
         } else {
           resultSpan.style.color = 'var(--danger)';
           resultSpan.textContent = `✗ Failed: ${data.message}`;
         }
       } catch (err) {
         resultSpan.style.color = 'var(--danger)';
-        resultSpan.textContent = `✗ Network Error: ${err.message}`;
+        resultSpan.textContent = `✗ Error: ${err.message}`;
       }
     }
 
@@ -307,12 +368,11 @@
     }
 
     function copySessionUrl() {
-      const text = document.getElementById('session-url-text').textContent;
-      navigator.clipboard.writeText(text);
+      navigator.clipboard.writeText(document.getElementById('session-url-text').textContent);
       alert('Copied shareable session link to clipboard!');
     }
 
-    // CDP Screencast WebSocket
+    // CDP Screencast WebSocket & Real-time Logs
     const img = document.getElementById('browser-canvas');
     const wsProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const ws = new WebSocket(`${wsProto}//${window.location.host}/ws/screencast`);
@@ -322,6 +382,11 @@
         const msg = JSON.parse(event.data);
         if (msg.type === 'frame') {
           img.src = 'data:image/jpeg;base64,' + msg.data;
+          if (msg.instruction) {
+            document.getElementById('instruction-text').textContent = msg.instruction;
+          }
+        } else if (msg.type === 'log') {
+          addLog(msg.data.type, msg.data.text);
         }
       } catch {}
     };
@@ -339,6 +404,10 @@
       if (document.activeElement.tagName !== 'INPUT' && document.activeElement.tagName !== 'TEXTAREA') {
         ws.send(JSON.stringify({ type: 'input', payload: { type: 'type', text: e.key.length === 1 ? e.key : undefined, key: e.key } }));
       }
+    });
+
+    document.getElementById('resume-btn').addEventListener('click', () => {
+      ws.send(JSON.stringify({ type: 'done' }));
     });
 
     init();
