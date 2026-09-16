@@ -7,6 +7,7 @@ import { IROp, IROpSchema } from '../types/ir.js';
 import { Recipe, RecipeStep } from '../types/recipe.js';
 import { RuntimeEngine } from '../core/runtime.js';
 import { PageFingerprinter } from '../core/fingerprinter.js';
+import { CaptchaDetector } from '../core/captcha-detector.js';
 
 export interface ExploreOptions {
   maxSteps?: number;
@@ -14,49 +15,36 @@ export interface ExploreOptions {
   taskGoal: string;
   taskKey: string;
   userData?: Record<string, any>;
+  onLog?: (type: string, text: string) => void;
+  onHandoffRequired?: (hint: string, resume: () => void) => Promise<void>;
 }
 
-/**
- * Resilient JSON parser for reasoning models (DeepSeek R1, Claude, OpenAI)
- * that handles <think> tags, markdown code blocks, trailing commas, and unquoted keys.
- */
 export function parseLLMJSON(raw: string): any {
   if (!raw) return null;
 
-  // 1. Strip reasoning / thinking tags (e.g. DeepSeek R1 <think>...</think>)
   let cleaned = raw.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
 
-  // 2. Extract from markdown code blocks if present
   const markdownMatch = cleaned.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
   if (markdownMatch && markdownMatch[1]) {
     cleaned = markdownMatch[1].trim();
   }
 
-  // 3. Extract the main JSON object boundary
   const firstBrace = cleaned.indexOf('{');
   const lastBrace = cleaned.lastIndexOf('}');
   if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
     cleaned = cleaned.substring(firstBrace, lastBrace + 1);
   }
 
-  // Direct parse attempt
   try {
     return JSON.parse(cleaned);
   } catch (err) {
-    // Attempt repairs:
-    // a. Remove trailing commas before } or ]
     let repaired = cleaned.replace(/,\s*([\}\]])/g, '$1');
-
-    // b. Fix unquoted keys: { key: "value" } -> { "key": "value" }
     repaired = repaired.replace(/([{,]\s*)([a-zA-Z0-9_]+)\s*:/g, '$1"$2":');
-
-    // c. Replace single quotes around strings
     repaired = repaired.replace(/'([^'\\]*(?:\\.[^'\\]*)*)'/g, '"$1"');
 
     try {
       return JSON.parse(repaired);
-    } catch (secondErr) {
-      console.warn('[parseLLMJSON] Failed to parse model output:', raw.substring(0, 300));
+    } catch {
       return null;
     }
   }
@@ -65,17 +53,19 @@ export function parseLLMJSON(raw: string): any {
 export class ExplorerAgent {
   constructor(private page: Page, private llm: LLMProvider) {}
 
-  /**
-   * Explores starting from Google or direct URL, compiling actions into a verified Recipe
-   */
   async explore(options: ExploreOptions): Promise<Recipe> {
     const steps: RecipeStep[] = [];
     const maxSteps = options.maxSteps || 12;
 
-    // If no URL is provided, start directly from Google search
-    const startUrl = options.initialUrl && options.initialUrl.startsWith('http')
-      ? options.initialUrl
-      : `https://www.google.com/search?q=${encodeURIComponent(options.taskGoal)}`;
+    // Use user-provided direct URL if available, otherwise fallback to DuckDuckGo (cleaner than Google)
+    let startUrl = options.initialUrl?.trim();
+    if (!startUrl || !startUrl.startsWith('http')) {
+      startUrl = `https://duckduckgo.com/?q=${encodeURIComponent(options.taskGoal)}`;
+    }
+
+    if (options.onLog) {
+      options.onLog('status', `Navigating to ${startUrl}...`);
+    }
 
     await this.page.goto(startUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
     steps.push({
@@ -84,7 +74,7 @@ export class ExplorerAgent {
       description: `Navigate to initial page: ${startUrl}`
     });
 
-    let siteDomain = 'google.com';
+    let siteDomain = 'web';
     try {
       siteDomain = new URL(startUrl).hostname;
     } catch {}
@@ -110,11 +100,29 @@ export class ExplorerAgent {
     const runtime = new RuntimeEngine(this.page, dummyRecipe, {}, options.userData || {});
 
     for (let i = 0; i < maxSteps; i++) {
-      // 1. Perception Cost Ladder
+      // 1. Proactive Bot & CAPTCHA Detection
+      const captcha = await CaptchaDetector.scan(this.page);
+      if (captcha.detected) {
+        const hint = captcha.hint || 'Bot detection or CAPTCHA active. Please solve in live preview.';
+        if (options.onLog) {
+          options.onLog('handoff', `⚠️ ${hint}`);
+        }
+
+        if (options.onHandoffRequired) {
+          await new Promise<void>((resolve) => {
+            options.onHandoffRequired!(hint, () => resolve());
+          });
+          if (options.onLog) {
+            options.onLog('status', '✓ Handoff resolved. Waiting for page to settle and continuing...');
+          }
+          await this.page.waitForTimeout(2000);
+        }
+      }
+
+      // 2. Perception Cost Ladder
       const dom = await DOMPruner.capture(this.page);
       const a11y = await A11yExtractor.capture(this.page);
 
-      // Level 3 screenshot if page is complex
       let screenshotB64: string | undefined;
       if (dom.elements.length > 40 || a11y.tokenEstimate > 1200) {
         try {
@@ -123,7 +131,7 @@ export class ExplorerAgent {
         } catch {}
       }
 
-      // 2. Context Prompt
+      // 3. Prompting AI
       const fp = await PageFingerprinter.capture(this.page);
       const prompt = `
 Goal: "${options.taskGoal}"
@@ -134,23 +142,25 @@ Current Page Title: ${dom.title}
 Interactive Elements:
 ${dom.representationText.substring(0, 3500)}
 
-Determine the next best action to progress towards the goal.
-If on Google search results, choose the most relevant link.
-If the goal is already achieved, set "goalAchieved": true.
+Determine the next action to progress towards the goal.
+If goal is achieved, set "goalAchieved": true.
+If a CAPTCHA or bot check is present that you cannot solve, set op: "handoff", reason: "captcha".
 
-CRITICAL: Return ONLY raw JSON without markdown backticks:
+CRITICAL: Return ONLY valid JSON:
 {
-  "thought": "I will click the first search result for...",
+  "thought": "I will click the link for...",
   "goalAchieved": false,
   "nextOp": {
     "op": "click" | "fill" | "select" | "wait_for" | "download" | "handoff",
+    "reason": "captcha" | "otp" | "payment",
+    "hint": "Please solve CAPTCHA",
     "target": {
       "role": "link" | "button" | "textbox",
       "name": "Exact text or accessible name",
-      "id": "optional-element-id",
+      "id": "optional-id",
       "nearText": "optional label text"
     },
-    "value": "text to type if fill"
+    "value": "text if fill"
   }
 }
 `;
@@ -158,7 +168,7 @@ CRITICAL: Return ONLY raw JSON without markdown backticks:
       const response = await this.llm.chat([
         {
           role: 'system',
-          content: 'You are AutomAIO, an autonomous browser compiler. You output pure JSON actions.'
+          content: 'You are AutomAIO autonomous browser compiler. You output pure JSON actions.'
         },
         {
           role: 'user',
@@ -170,21 +180,30 @@ CRITICAL: Return ONLY raw JSON without markdown backticks:
       const parsed = parseLLMJSON(response.content);
 
       if (!parsed || !parsed.nextOp) {
-        console.warn(`[ExplorerAgent] Could not parse action at step ${i + 1}. Model output:`, response.content);
+        if (options.onLog) {
+          options.onLog('status', `No next action decided. Ending exploration.`);
+        }
         break;
       }
 
       if (parsed.goalAchieved) {
-        console.log(`[ExplorerAgent] Goal achieved at step ${i + 1}!`);
+        if (options.onLog) {
+          options.onLog('done', `🎉 Goal achieved!`);
+        }
         break;
       }
 
-      // Validate operation with Zod schema
+      if (options.onLog) {
+        options.onLog('explore', `Step ${i + 1}: ${parsed.thought || parsed.nextOp.op}`);
+      }
+
       let validatedOp: IROp;
       try {
         validatedOp = IROpSchema.parse(parsed.nextOp);
       } catch (err: any) {
-        console.warn(`[ExplorerAgent] Schema validation failed for op:`, parsed.nextOp, err.message);
+        if (options.onLog) {
+          options.onLog('error', `Invalid op schema: ${err.message}`);
+        }
         break;
       }
 
@@ -195,13 +214,14 @@ CRITICAL: Return ONLY raw JSON without markdown backticks:
         pageFingerprint: fp.hash
       };
 
-      // Execute action to advance the browser
       try {
         await runtime.executeStep(newStep);
-        await this.page.waitForTimeout(1500); // let page settle
+        await this.page.waitForTimeout(1500);
         steps.push(newStep);
       } catch (execErr: any) {
-        console.warn(`[ExplorerAgent] Step execution failed: ${execErr.message}`);
+        if (options.onLog) {
+          options.onLog('error', `Execution failed: ${execErr.message}`);
+        }
         break;
       }
     }

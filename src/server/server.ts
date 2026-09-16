@@ -31,10 +31,7 @@ export function createAutomAIOServer(config: ServerConfig = {}): FastifyInstance
     prefix: '/'
   });
 
-  // REST API Routes
   app.get('/api/health', async () => ({ status: 'ok', time: new Date().toISOString() }));
-
-  // AI Provider Presets and Connection Tester
   app.get('/api/ai/presets', async () => PROVIDER_PRESETS);
 
   app.post('/api/ai/test', async (request) => {
@@ -43,14 +40,12 @@ export function createAutomAIOServer(config: ServerConfig = {}): FastifyInstance
     return provider.testConnection();
   });
 
-  // Active Sessions
   app.get('/api/sessions', async () => registry.listActive());
 
   app.get('/session/:sessionId', async (request, reply) => {
     return reply.sendFile('index.html');
   });
 
-  // Start Automation Task from Natural Language Query (NO mandatory URL)
   app.post('/api/tasks/start', async (request, reply) => {
     const body = request.body as {
       goal: string;
@@ -64,11 +59,6 @@ export function createAutomAIOServer(config: ServerConfig = {}): FastifyInstance
       return reply.status(400).send({ error: 'Goal is required' });
     }
 
-    // Default to Google search if no URL is provided
-    const targetUrl = body.url && body.url.trim().startsWith('http')
-      ? body.url.trim()
-      : `https://www.google.com/search?q=${encodeURIComponent(body.goal)}`;
-
     let session = body.sessionId ? registry.getSession(body.sessionId) : undefined;
     if (!session) {
       const active = registry.listActive()[0];
@@ -79,14 +69,14 @@ export function createAutomAIOServer(config: ServerConfig = {}): FastifyInstance
       return reply.status(500).send({ error: 'No active browser session found' });
     }
 
-    // Execute task asynchronously
+    // Run task asynchronously
     (async () => {
       try {
         const provider = new UniversalLLMProvider(body.aiConfig || {});
         
         session.events.emit('log', {
           type: 'status',
-          text: `Starting automation for: "${body.goal}" (Origin: ${targetUrl.includes('google.com') ? 'Google Search' : targetUrl})`
+          text: `Starting automation for: "${body.goal}"`
         });
 
         const canonicalKey = body.goal.toLowerCase().replace(/[^a-z0-9]/g, '.');
@@ -123,22 +113,29 @@ export function createAutomAIOServer(config: ServerConfig = {}): FastifyInstance
 
           const explorer = new ExplorerAgent(session.page, provider);
           const compiledRecipe = await explorer.explore({
-            initialUrl: targetUrl,
+            initialUrl: body.url,
             taskGoal: body.goal,
             taskKey: canonicalKey,
-            userData: body.userData
+            userData: body.userData,
+            onLog: (type, text) => {
+              session!.events.emit('log', { type, text });
+            },
+            onHandoffRequired: async (hint, resume) => {
+              session!.status = 'waiting_human';
+              session!.instruction = hint;
+              session!.onResolved = resume;
+              session!.events.emit('log', {
+                type: 'handoff',
+                text: `Handoff requested: ${hint}`
+              });
+            }
           });
 
           if (compiledRecipe.steps.length > 1) {
             await recipeStore.save(compiledRecipe);
             session.events.emit('log', {
               type: 'done',
-              text: `Exploration complete! Compiled and saved new recipe with ${compiledRecipe.steps.length} steps.`
-            });
-          } else {
-            session.events.emit('log', {
-              type: 'status',
-              text: `Exploration finished.`
+              text: `Saved compiled recipe with ${compiledRecipe.steps.length} steps.`
             });
           }
         }
@@ -164,12 +161,16 @@ export function createAutomAIOServer(config: ServerConfig = {}): FastifyInstance
       if (session && session.onResolved) {
         session.onResolved();
         session.status = 'active';
+        session.instruction = 'No intervention required. Automation running.';
+        session.events.emit('log', {
+          type: 'status',
+          text: '✓ User marked handoff complete. Resuming...'
+        });
       }
     }
     return { success: true };
   });
 
-  // WebSocket for real-time CDP Screencast & remote input forwarding
   app.register(async function (fastify) {
     fastify.get('/ws/screencast', { websocket: true }, (socket) => {
       const active = registry.listActive()[0];
@@ -221,6 +222,7 @@ export function createAutomAIOServer(config: ServerConfig = {}): FastifyInstance
             if (session.onResolved) {
               session.onResolved();
               session.status = 'active';
+              session.instruction = 'No intervention required. Automation running.';
             }
           }
         } catch {}
