@@ -10,34 +10,90 @@ import { PageFingerprinter } from '../core/fingerprinter.js';
 
 export interface ExploreOptions {
   maxSteps?: number;
-  initialUrl: string;
+  initialUrl?: string;
   taskGoal: string;
   taskKey: string;
   userData?: Record<string, any>;
+}
+
+/**
+ * Resilient JSON parser for reasoning models (DeepSeek R1, Claude, OpenAI)
+ * that handles <think> tags, markdown code blocks, trailing commas, and unquoted keys.
+ */
+export function parseLLMJSON(raw: string): any {
+  if (!raw) return null;
+
+  // 1. Strip reasoning / thinking tags (e.g. DeepSeek R1 <think>...</think>)
+  let cleaned = raw.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+
+  // 2. Extract from markdown code blocks if present
+  const markdownMatch = cleaned.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+  if (markdownMatch && markdownMatch[1]) {
+    cleaned = markdownMatch[1].trim();
+  }
+
+  // 3. Extract the main JSON object boundary
+  const firstBrace = cleaned.indexOf('{');
+  const lastBrace = cleaned.lastIndexOf('}');
+  if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+    cleaned = cleaned.substring(firstBrace, lastBrace + 1);
+  }
+
+  // Direct parse attempt
+  try {
+    return JSON.parse(cleaned);
+  } catch (err) {
+    // Attempt repairs:
+    // a. Remove trailing commas before } or ]
+    let repaired = cleaned.replace(/,\s*([\}\]])/g, '$1');
+
+    // b. Fix unquoted keys: { key: "value" } -> { "key": "value" }
+    repaired = repaired.replace(/([{,]\s*)([a-zA-Z0-9_]+)\s*:/g, '$1"$2":');
+
+    // c. Replace single quotes around strings
+    repaired = repaired.replace(/'([^'\\]*(?:\\.[^'\\]*)*)'/g, '"$1"');
+
+    try {
+      return JSON.parse(repaired);
+    } catch (secondErr) {
+      console.warn('[parseLLMJSON] Failed to parse model output:', raw.substring(0, 300));
+      return null;
+    }
+  }
 }
 
 export class ExplorerAgent {
   constructor(private page: Page, private llm: LLMProvider) {}
 
   /**
-   * Explores a site to accomplish taskGoal, recording each action into a compiled Recipe
+   * Explores starting from Google or direct URL, compiling actions into a verified Recipe
    */
   async explore(options: ExploreOptions): Promise<Recipe> {
     const steps: RecipeStep[] = [];
-    const maxSteps = options.maxSteps || 10;
-    
-    // Initial navigation
-    await this.page.goto(options.initialUrl, { waitUntil: 'domcontentloaded' });
+    const maxSteps = options.maxSteps || 12;
+
+    // If no URL is provided, start directly from Google search
+    const startUrl = options.initialUrl && options.initialUrl.startsWith('http')
+      ? options.initialUrl
+      : `https://www.google.com/search?q=${encodeURIComponent(options.taskGoal)}`;
+
+    await this.page.goto(startUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
     steps.push({
       id: 'step_1_init',
-      op: { op: 'goto', url: options.initialUrl }
+      op: { op: 'goto', url: startUrl },
+      description: `Navigate to initial page: ${startUrl}`
     });
+
+    let siteDomain = 'google.com';
+    try {
+      siteDomain = new URL(startUrl).hostname;
+    } catch {}
 
     const dummyRecipe: Recipe = {
       id: `recipe_${Date.now()}`,
       taskKey: options.taskKey,
       name: options.taskGoal,
-      siteDomain: new URL(options.initialUrl).hostname,
+      siteDomain,
       version: 1,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -55,37 +111,46 @@ export class ExplorerAgent {
 
     for (let i = 0; i < maxSteps; i++) {
       // 1. Perception Cost Ladder
-      // Level 1: A11y tree
-      const a11y = await A11yExtractor.capture(this.page);
-      
-      // Level 2: Pruned DOM
       const dom = await DOMPruner.capture(this.page);
+      const a11y = await A11yExtractor.capture(this.page);
 
-      // Level 3: Screenshot if needed (or for first / ambiguous steps)
+      // Level 3 screenshot if page is complex
       let screenshotB64: string | undefined;
-      if (dom.elements.length > 50 || a11y.tokenEstimate > 1500) {
-        const somBuffer = await SetOfMarkAnnotator.captureAnnotatedScreenshot(this.page, dom.elements);
-        screenshotB64 = somBuffer.toString('base64');
+      if (dom.elements.length > 40 || a11y.tokenEstimate > 1200) {
+        try {
+          const somBuffer = await SetOfMarkAnnotator.captureAnnotatedScreenshot(this.page, dom.elements.slice(0, 30));
+          screenshotB64 = somBuffer.toString('base64');
+        } catch {}
       }
 
-      // 2. Build Context Prompt
+      // 2. Context Prompt
       const fp = await PageFingerprinter.capture(this.page);
       const prompt = `
-Task Goal: ${options.taskGoal}
+Goal: "${options.taskGoal}"
 Current Step: ${i + 1}
 Current URL: ${this.page.url()}
+Current Page Title: ${dom.title}
 
-Page Perception (Pruned Interactive Elements):
-${dom.representationText}
+Interactive Elements:
+${dom.representationText.substring(0, 3500)}
 
-Respond ONLY with valid JSON in this structure:
+Determine the next best action to progress towards the goal.
+If on Google search results, choose the most relevant link.
+If the goal is already achieved, set "goalAchieved": true.
+
+CRITICAL: Return ONLY raw JSON without markdown backticks:
 {
-  "thought": "brief reasoning",
-  "goalAchieved": boolean,
+  "thought": "I will click the first search result for...",
+  "goalAchieved": false,
   "nextOp": {
     "op": "click" | "fill" | "select" | "wait_for" | "download" | "handoff",
-    "target": { "role": "...", "name": "...", "id": "...", "elementId": 12 },
-    "value": "string or $user.variable"
+    "target": {
+      "role": "link" | "button" | "textbox",
+      "name": "Exact text or accessible name",
+      "id": "optional-element-id",
+      "nearText": "optional label text"
+    },
+    "value": "text to type if fill"
   }
 }
 `;
@@ -93,7 +158,7 @@ Respond ONLY with valid JSON in this structure:
       const response = await this.llm.chat([
         {
           role: 'system',
-          content: 'You are AutomAIO Compiler. You navigate web forms and emit restricted IR operations.'
+          content: 'You are AutomAIO, an autonomous browser compiler. You output pure JSON actions.'
         },
         {
           role: 'user',
@@ -102,25 +167,27 @@ Respond ONLY with valid JSON in this structure:
         }
       ], 'frontier');
 
-      let parsed: any;
-      try {
-        parsed = JSON.parse(response.content);
-      } catch {
-        const jsonMatch = response.content.match(/\{[\s\S]*\}/);
-        parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : null;
-      }
+      const parsed = parseLLMJSON(response.content);
 
       if (!parsed || !parsed.nextOp) {
+        console.warn(`[ExplorerAgent] Could not parse action at step ${i + 1}. Model output:`, response.content);
         break;
       }
 
       if (parsed.goalAchieved) {
+        console.log(`[ExplorerAgent] Goal achieved at step ${i + 1}!`);
         break;
       }
 
-      // Validate operation against Zod schema
-      const validatedOp: IROp = IROpSchema.parse(parsed.nextOp);
-      
+      // Validate operation with Zod schema
+      let validatedOp: IROp;
+      try {
+        validatedOp = IROpSchema.parse(parsed.nextOp);
+      } catch (err: any) {
+        console.warn(`[ExplorerAgent] Schema validation failed for op:`, parsed.nextOp, err.message);
+        break;
+      }
+
       const newStep: RecipeStep = {
         id: `step_${steps.length + 1}_${validatedOp.op}`,
         op: validatedOp,
@@ -128,9 +195,15 @@ Respond ONLY with valid JSON in this structure:
         pageFingerprint: fp.hash
       };
 
-      // Execute action to move the page forward
-      await runtime.executeStep(newStep);
-      steps.push(newStep);
+      // Execute action to advance the browser
+      try {
+        await runtime.executeStep(newStep);
+        await this.page.waitForTimeout(1500); // let page settle
+        steps.push(newStep);
+      } catch (execErr: any) {
+        console.warn(`[ExplorerAgent] Step execution failed: ${execErr.message}`);
+        break;
+      }
     }
 
     dummyRecipe.steps = steps;

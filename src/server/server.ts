@@ -50,19 +50,24 @@ export function createAutomAIOServer(config: ServerConfig = {}): FastifyInstance
     return reply.sendFile('index.html');
   });
 
-  // Start Automation Task from User Natural Language Query
+  // Start Automation Task from Natural Language Query (NO mandatory URL)
   app.post('/api/tasks/start', async (request, reply) => {
     const body = request.body as {
       goal: string;
-      url: string;
+      url?: string;
       sessionId?: string;
       userData?: Record<string, any>;
       aiConfig?: Partial<AIProviderConfig>;
     };
 
-    if (!body.goal || !body.url) {
-      return reply.status(400).send({ error: 'Both goal and url are required' });
+    if (!body.goal) {
+      return reply.status(400).send({ error: 'Goal is required' });
     }
+
+    // Default to Google search if no URL is provided
+    const targetUrl = body.url && body.url.trim().startsWith('http')
+      ? body.url.trim()
+      : `https://www.google.com/search?q=${encodeURIComponent(body.goal)}`;
 
     let session = body.sessionId ? registry.getSession(body.sessionId) : undefined;
     if (!session) {
@@ -81,7 +86,7 @@ export function createAutomAIOServer(config: ServerConfig = {}): FastifyInstance
         
         session.events.emit('log', {
           type: 'status',
-          text: `Starting automation for: "${body.goal}" on ${body.url}`
+          text: `Starting automation for: "${body.goal}" (Origin: ${targetUrl.includes('google.com') ? 'Google Search' : targetUrl})`
         });
 
         const canonicalKey = body.goal.toLowerCase().replace(/[^a-z0-9]/g, '.');
@@ -113,22 +118,29 @@ export function createAutomAIOServer(config: ServerConfig = {}): FastifyInstance
         } else {
           session.events.emit('log', {
             type: 'explore',
-            text: `No cached recipe found. Launching Explore Mode using ${body.aiConfig?.provider || 'default'} AI...`
+            text: `Launching Explore Mode using ${body.aiConfig?.provider || 'default'} AI...`
           });
 
           const explorer = new ExplorerAgent(session.page, provider);
           const compiledRecipe = await explorer.explore({
-            initialUrl: body.url,
+            initialUrl: targetUrl,
             taskGoal: body.goal,
             taskKey: canonicalKey,
             userData: body.userData
           });
 
-          await recipeStore.save(compiledRecipe);
-          session.events.emit('log', {
-            type: 'done',
-            text: `Exploration complete! Compiled and saved new recipe with ${compiledRecipe.steps.length} steps.`
-          });
+          if (compiledRecipe.steps.length > 1) {
+            await recipeStore.save(compiledRecipe);
+            session.events.emit('log', {
+              type: 'done',
+              text: `Exploration complete! Compiled and saved new recipe with ${compiledRecipe.steps.length} steps.`
+            });
+          } else {
+            session.events.emit('log', {
+              type: 'status',
+              text: `Exploration finished.`
+            });
+          }
         }
       } catch (err: any) {
         session.events.emit('log', {
@@ -181,7 +193,6 @@ export function createAutomAIOServer(config: ServerConfig = {}): FastifyInstance
         return;
       }
 
-      // 1. Frame Listener
       const unsubscribeFrames = session.screencast.onFrame((frame) => {
         if (socket.readyState === socket.OPEN) {
           socket.send(JSON.stringify({
@@ -194,7 +205,6 @@ export function createAutomAIOServer(config: ServerConfig = {}): FastifyInstance
         }
       });
 
-      // 2. Real-time Activity Log Listener via session EventEmitter
       const logHandler = (logData: any) => {
         if (socket.readyState === socket.OPEN) {
           socket.send(JSON.stringify({ type: 'log', data: logData }));
@@ -202,7 +212,6 @@ export function createAutomAIOServer(config: ServerConfig = {}): FastifyInstance
       };
       session.events.on('log', logHandler);
 
-      // 3. Remote Mouse/Key Events
       socket.on('message', async (message: any) => {
         try {
           const event = JSON.parse(message.toString());
@@ -214,9 +223,7 @@ export function createAutomAIOServer(config: ServerConfig = {}): FastifyInstance
               session.status = 'active';
             }
           }
-        } catch {
-          // ignore
-        }
+        } catch {}
       });
 
       socket.on('close', () => {

@@ -26,18 +26,23 @@
     .tab-btn { background: transparent; border: 1px solid var(--card-border); color: var(--text-dim); padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 0.85rem; }
     .tab-btn.active { background: var(--accent-hover); color: white; border-color: var(--accent); }
 
-    /* Task Query Bar */
+    /* Google-Style Task Bar */
     .task-query-bar { background: #131b2e; padding: 12px 24px; border-bottom: 1px solid var(--card-border); display: flex; flex-direction: column; gap: 8px; }
     .query-inputs { display: flex; gap: 10px; align-items: center; }
-    .query-input { background: #0f172a; border: 1px solid var(--card-border); color: var(--text); padding: 10px 14px; border-radius: 6px; font-size: 0.9rem; outline: none; flex: 2; }
-    .url-input { background: #0f172a; border: 1px solid var(--card-border); color: var(--text); padding: 10px 14px; border-radius: 6px; font-size: 0.9rem; outline: none; flex: 1.2; }
-    .query-input:focus, .url-input:focus { border-color: var(--accent); }
-    .btn-run { background: linear-gradient(135deg, #0284c7, #2563eb); color: white; border: none; padding: 10px 20px; border-radius: 6px; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 6px; font-size: 0.9rem; transition: 0.2s; white-space: nowrap; }
+    .query-input { background: #0f172a; border: 1px solid var(--card-border); color: var(--text); padding: 12px 16px; border-radius: 8px; font-size: 0.95rem; outline: none; flex: 1; transition: border-color 0.2s; }
+    .query-input:focus { border-color: var(--accent); }
+    .btn-run { background: linear-gradient(135deg, #0284c7, #2563eb); color: white; border: none; padding: 12px 24px; border-radius: 8px; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 8px; font-size: 0.95rem; transition: 0.2s; white-space: nowrap; }
     .btn-run:hover { opacity: 0.9; transform: translateY(-1px); }
 
+    .query-subrow { display: flex; justify-content: space-between; align-items: center; }
     .example-chips { display: flex; align-items: center; gap: 8px; font-size: 0.75rem; color: var(--text-dim); }
-    .chip { background: #1e293b; border: 1px solid var(--card-border); padding: 3px 8px; border-radius: 4px; cursor: pointer; color: var(--accent); }
+    .chip { background: #1e293b; border: 1px solid var(--card-border); padding: 3px 10px; border-radius: 4px; cursor: pointer; color: var(--accent); }
     .chip:hover { background: #334155; }
+    .direct-url-toggle { font-size: 0.75rem; color: var(--text-dim); cursor: pointer; text-decoration: underline; }
+
+    .direct-url-row { display: none; margin-top: 6px; }
+    .direct-url-row.open { display: flex; }
+    .direct-url-input { background: #0f172a; border: 1px solid var(--card-border); color: var(--text); padding: 6px 12px; border-radius: 6px; font-size: 0.8rem; width: 340px; outline: none; }
 
     main { flex: 1; display: flex; overflow: hidden; }
     .tab-content { display: none; width: 100%; height: 100%; }
@@ -55,7 +60,7 @@
     .btn-outline:hover { background: #1e293b; }
 
     /* Activity Stream */
-    .activity-log { display: flex; flex-direction: column; gap: 8px; max-height: 180px; overflow-y: auto; font-family: monospace; font-size: 0.75rem; }
+    .activity-log { display: flex; flex-direction: column; gap: 8px; max-height: 220px; overflow-y: auto; font-family: monospace; font-size: 0.75rem; }
     .log-item { padding: 6px 8px; border-radius: 4px; border-left: 3px solid var(--accent); background: #1e293b; }
     .log-item.cache_hit { border-left-color: var(--success); color: #34d399; }
     .log-item.explore { border-left-color: #818cf8; color: #a5b4fc; }
@@ -81,7 +86,7 @@
   <header>
     <div class="brand">
       <span>⚡ AutomAIO</span>
-      <span style="font-size: 0.75rem; background: #1e293b; padding: 2px 8px; border-radius: 9999px; color: #38bdf8;">v0.3.0</span>
+      <span style="font-size: 0.75rem; background: #1e293b; padding: 2px 8px; border-radius: 9999px; color: #38bdf8;">v0.3.1</span>
     </div>
     <div class="nav-tabs">
       <button class="tab-btn active" onclick="switchTab('browser-tab')">🖥️ Live Browser & Handoff</button>
@@ -89,20 +94,25 @@
     </div>
   </header>
 
-  <!-- NATURAL LANGUAGE TASK QUERY BAR (Where the user asks what to achieve) -->
+  <!-- GOOGLE-STYLE SINGLE SEARCH / GOAL INPUT -->
   <div class="task-query-bar">
     <div class="query-inputs">
-      <input type="text" id="task-goal-input" class="query-input" placeholder="What would you like to achieve? (e.g. Download SSC CGL admit card for roll 99120)" />
-      <input type="text" id="task-url-input" class="url-input" placeholder="Target Website URL (e.g. https://ssc.gov.in)" value="https://example.com" />
+      <input type="text" id="task-goal-input" class="query-input" placeholder="🔍 What do you want to automate? (e.g. find latest news about SpaceX, download SSC admit card...)" />
       <button class="btn-run" onclick="startAutomationTask()">
         <span>🚀 Start Run</span>
       </button>
     </div>
-    <div class="example-chips">
-      <span>Quick Examples:</span>
-      <span class="chip" onclick="setQuery('Download SSC CGL 2026 Admit Card', 'https://ssc.gov.in')">SSC Admit Card</span>
-      <span class="chip" onclick="setQuery('Check application status and download PDF', 'https://example.com')">Check Application Status</span>
-      <span class="chip" onclick="setQuery('Fill candidate exam details and upload docs', 'https://example.com')">Fill Exam Form</span>
+    <div class="query-subrow">
+      <div class="example-chips">
+        <span>Try:</span>
+        <span class="chip" onclick="setQuery('find latest news about spacex')">SpaceX News</span>
+        <span class="chip" onclick="setQuery('download ssc cgl admit card')">SSC Admit Card</span>
+        <span class="chip" onclick="setQuery('check weather in New Delhi')">Delhi Weather</span>
+      </div>
+      <span class="direct-url-toggle" onclick="toggleDirectUrl()">+ Direct Target URL (Optional)</span>
+    </div>
+    <div class="direct-url-row" id="direct-url-container">
+      <input type="text" id="task-url-input" class="direct-url-input" placeholder="Optional Direct URL (e.g. https://www.spacex.com)" />
     </div>
   </div>
 
@@ -118,7 +128,7 @@
         <div class="card">
           <div style="font-weight: 600; font-size: 0.85rem; margin-bottom: 8px; color: var(--accent);">🧠 REAL-TIME AI ACTIVITY</div>
           <div class="activity-log" id="activity-log">
-            <div class="log-item">System ready. Enter your goal above and click "Start Run".</div>
+            <div class="log-item">Ready. Type what you want to achieve above and press "Start Run".</div>
           </div>
         </div>
 
@@ -126,7 +136,7 @@
         <div class="card">
           <div style="font-weight: 600; font-size: 0.85rem; margin-bottom: 6px; color: var(--accent);">🔗 SHAREABLE RANDOM SESSION URL</div>
           <p style="font-size: 0.72rem; color: var(--text-dim); margin-bottom: 6px;">
-            Open this on your mobile or share with a user to supervise or solve CAPTCHA:
+            Open on your phone or share with user to supervise/solve CAPTCHA:
           </p>
           <div class="session-url-box" id="session-url-text">Loading session URL...</div>
           <button class="btn btn-outline" style="width: 100%; margin-top: 6px;" onclick="copySessionUrl()">📋 Copy Link</button>
@@ -147,13 +157,11 @@
     <!-- TAB 2: AI Inference Engine & Model Selection -->
     <div id="ai-tab" class="tab-content">
       <div class="settings-container">
-        <div style="display: flex; justify-content: space-between; align-items: center;">
-          <div>
-            <h2>⚙️ AI Inference Engine & Model Selection</h2>
-            <p style="font-size: 0.85rem; color: var(--text-dim); margin-top: 4px;">
-              Configure any provider: Groq, OpenAI, Anthropic, OpenRouter, DeepSeek, Cerebras, Ollama, Gemini, or custom endpoint.
-            </p>
-          </div>
+        <div>
+          <h2>⚙️ AI Inference Engine & Model Selection</h2>
+          <p style="font-size: 0.85rem; color: var(--text-dim); margin-top: 4px;">
+            Configure any provider: Groq, OpenAI, Anthropic, OpenRouter, DeepSeek, Cerebras, Ollama, Gemini, or custom endpoint.
+          </p>
         </div>
 
         <!-- Provider Selection Grid -->
@@ -161,25 +169,21 @@
           <div style="font-weight: 600; font-size: 0.85rem; margin-bottom: 8px;">SELECT LLM PROVIDER</div>
           <div class="provider-grid" id="provider-grid"></div>
 
-          <!-- Base Endpoint URL -->
           <div class="form-group">
             <label>Base Endpoint URL</label>
             <input type="text" id="endpoint-input" class="input-field" />
           </div>
 
-          <!-- Model Identifier -->
           <div class="form-group">
             <label>Model Identifier / Name</label>
             <input type="text" id="model-input" class="input-field" />
           </div>
 
-          <!-- Saved Models Quick Chips -->
           <div class="form-group">
             <label>Recommended Models</label>
             <div class="example-chips" id="model-chips" style="margin-top: 4px;"></div>
           </div>
 
-          <!-- API Key Input -->
           <div class="form-group">
             <label id="apikey-label">API Key</label>
             <div style="display: flex; gap: 8px;">
@@ -188,7 +192,6 @@
             </div>
           </div>
 
-          <!-- Test Connection & Save -->
           <div style="display: flex; gap: 10px; margin-top: 16px; align-items: center;">
             <button class="btn" onclick="testConnection()">⚡ Test Model Connection</button>
             <button class="btn btn-success" onclick="saveSettings()">💾 Save Provider Settings</button>
@@ -207,9 +210,13 @@
       document.getElementById(tabId).classList.add('active');
     }
 
-    function setQuery(goal, url) {
+    function setQuery(goal) {
       document.getElementById('task-goal-input').value = goal;
-      document.getElementById('task-url-input').value = url;
+    }
+
+    function toggleDirectUrl() {
+      const container = document.getElementById('direct-url-container');
+      container.classList.toggle('open');
     }
 
     let presets = {};
@@ -223,7 +230,6 @@
         selectProvider(currentProvider);
       } catch (err) {}
 
-      // Get active session
       try {
         const res = await fetch('/api/sessions');
         const sessions = await res.json();
@@ -245,14 +251,14 @@
 
     async function startAutomationTask() {
       const goal = document.getElementById('task-goal-input').value.trim();
-      const url = document.getElementById('task-url-input').value.trim();
+      const directUrl = document.getElementById('task-url-input').value.trim();
 
-      if (!goal || !url) {
-        alert('Please enter both your automation goal and the target URL.');
+      if (!goal) {
+        alert('Please enter what you want to achieve.');
         return;
       }
 
-      addLog('status', `Sending goal: "${goal}" to AutomAIO Engine...`);
+      addLog('status', `Goal submitted: "${goal}". Launching automation...`);
 
       const aiConfig = {
         provider: currentProvider,
@@ -265,13 +271,13 @@
         const res = await fetch('/api/tasks/start', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ goal, url, aiConfig })
+          body: JSON.stringify({ goal, url: directUrl || undefined, aiConfig })
         });
         const data = await res.json();
         if (data.success) {
-          addLog('status', `Task accepted by runner. Watch the live browser below!`);
+          addLog('status', `Task started! Watch the live browser below.`);
         } else {
-          addLog('error', `Failed to start: ${data.error}`);
+          addLog('error', `Failed: ${data.error}`);
         }
       } catch (err) {
         addLog('error', `Network error: ${err.message}`);
@@ -408,6 +414,11 @@
 
     document.getElementById('resume-btn').addEventListener('click', () => {
       ws.send(JSON.stringify({ type: 'done' }));
+    });
+
+    // Press Enter to start run
+    document.getElementById('task-goal-input').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') startAutomationTask();
     });
 
     init();
